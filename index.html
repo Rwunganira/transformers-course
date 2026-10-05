@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Transformers from Scratch</title>
+<meta name="description" content="Nine interactive modules that follow one sentence through a transformer, from tokens to attention to text generation. No maths beyond multiplication.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the course is the model's own data path. A sticky "track" of 9 stations (text → tokens → … → generation) sits on top;
+   each module = idea → try it → remember → check. Query / Key / Value keep one colour each everywhere (blue / raspberry / amber). */
+:root{
+  --paper:#F4F5FA; --card:#FFFFFF; --sunk:#E9ECF4; --ink:#161A2B; --muted:#596079; --line:#D5D9E6;
+  --q:#2457C5; --q-soft:#E1E9FA; --k:#BE2F64; --k-soft:#F8E0E9; --v:#9A6200; --v-soft:#F5E9D2;
+  --ok:#1C7A4D; --ok-soft:#DCF0E5; --bad:#B42A2A; --bad-soft:#F8DEDE;
+  --display:"Schibsted Grotesk","Segoe UI",system-ui,sans-serif;
+  --body:"Atkinson Hyperlegible","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --paper:#0F1220; --card:#171B2C; --sunk:#20253A; --ink:#E6E8F2; --muted:#9CA3BD; --line:#2D3350;
+    --q:#86A9FF; --q-soft:#1D2A4D; --k:#FF86B0; --k-soft:#40192B; --v:#F2B74E; --v-soft:#3A2B12;
+    --ok:#6FD6A0; --ok-soft:#153526; --bad:#FF8C8C; --bad-soft:#3E1A1A;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --paper:#0F1220; --card:#171B2C; --sunk:#20253A; --ink:#E6E8F2; --muted:#9CA3BD; --line:#2D3350;
+  --q:#86A9FF; --q-soft:#1D2A4D; --k:#FF86B0; --k-soft:#40192B; --v:#F2B74E; --v-soft:#3A2B12;
+  --ok:#6FD6A0; --ok-soft:#153526; --bad:#FF8C8C; --bad-soft:#3E1A1A;
+}
+*{box-sizing:border-box}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.6;padding-inline:16px;padding-block:0 80px}
+img{max-width:100%}
+[hidden]{display:none!important}
+h1,h2,h3{font-family:var(--display);line-height:1.1;margin:0;text-wrap:balance}
+h1{font-size:clamp(2.4rem,7.5vw,4.4rem);font-weight:800;letter-spacing:-.03em}
+h2{font-size:clamp(1.6rem,3.8vw,2.15rem);font-weight:800;letter-spacing:-.02em}
+h3{font-size:1.08rem;font-weight:700}
+p{margin:0}
+a{color:var(--q)}
+button,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--q);outline-offset:2px}
+.label{font-family:var(--mono);font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:1040px;margin:0 auto}
+.Q{color:var(--q);font-weight:700}.K{color:var(--k);font-weight:700}.V{color:var(--v);font-weight:700}
+
+/* hero */
+header.hero{padding-block:56px 32px;display:grid;gap:22px}
+.hero h1 span{color:var(--q)}
+.hero .lede{font-size:1.2rem;color:var(--muted);max-width:60ch}
+.sentence{font-family:var(--mono);font-size:clamp(.85rem,2.2vw,1rem);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.sentence span{padding:3px 8px;border-radius:5px;background:var(--card);border:1px solid var(--line)}
+.sentence span.hot{background:var(--q-soft);border-color:var(--q)}
+.sentence i{font-style:normal;color:var(--muted)}
+.how{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;max-width:820px}
+.how div{background:var(--card);padding:12px 14px;display:grid;gap:2px;align-content:start}
+.how b{font-family:var(--display);font-size:1rem}
+.how span{font-size:.86rem;color:var(--muted);line-height:1.4}
+@media (max-width:640px){.how{grid-template-columns:1fr 1fr}}
+.stats{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:.95rem;color:var(--muted)}
+.stats b{color:var(--ink)}
+
+/* track (sticky nav) */
+nav.track{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:var(--paper);margin-inline:-16px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.track-in{max-width:1040px;margin:0 auto;display:grid;gap:8px}
+.track ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:4px}
+.track a{position:relative;display:grid;gap:1px;padding:6px 8px 7px;border-radius:7px;text-decoration:none;color:var(--muted);font-size:.8rem;line-height:1.2;border:1px solid transparent}
+.track a .n{font-family:var(--mono);font-size:.7rem;display:flex;justify-content:space-between;align-items:center}
+.track a .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+.track a:hover{background:var(--sunk)}
+.track a.here{background:var(--q-soft);border-color:var(--q)}
+.track a .dot{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--line)}
+.track a.done .dot{background:var(--ok);border-color:var(--ok)}
+.track-meta{display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:.8rem;color:var(--muted)}
+.bar{flex:1;height:5px;border-radius:3px;background:var(--sunk);overflow:hidden;max-width:420px}
+.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+@media (max-width:820px){
+  .track ol{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:max-content;overflow-x:auto;scrollbar-width:none}
+  .track a{border-color:var(--line)}
+}
+
+/* module */
+.mod{padding-block:60px 8px;display:grid;gap:24px;scroll-margin-top:90px}
+.mod + .mod{border-top:1px solid var(--line)}
+.mod-head{display:grid;gap:8px}
+.mod-head .label{color:var(--q)}
+.mod-head .q{font-size:1.1rem;color:var(--muted);max-width:62ch}
+.idea{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:22px}
+@media (max-width:780px){.idea{grid-template-columns:minmax(0,1fr)}}
+.idea .txt{display:grid;gap:12px;max-width:64ch}
+.idea .txt b{font-weight:700}
+.analogy{background:var(--v-soft);border-radius:10px;padding:14px 16px;font-size:.96rem;align-self:start;display:grid;gap:4px}
+.analogy .label{color:var(--v)}
+ul.keys{margin:0;padding:0;list-style:none;display:grid;gap:8px;max-width:72ch}
+ul.keys li{display:grid;grid-template-columns:16px 1fr;gap:10px}
+ul.keys li::before{content:"→";font-family:var(--mono);color:var(--q);font-size:.9rem}
+
+/* lab */
+.lab{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;display:grid;gap:16px;min-width:0}
+.lab-head{display:grid;gap:4px}
+.lab-head .label{color:var(--k)}
+.lab-head p{color:var(--muted);font-size:.94rem;max-width:66ch}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button,.btn{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:5px 14px;font-size:.88rem;cursor:pointer}
+.seg button:hover,.btn:hover{border-color:var(--q)}
+.seg button[aria-pressed="true"]{background:var(--q);border-color:var(--q);color:var(--card)}
+.btn.primary{background:var(--q);border-color:var(--q);color:var(--card)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px 22px}
+.ctl{display:grid;gap:4px}
+.ctl label{font-size:.88rem;display:flex;justify-content:space-between;gap:8px}
+.ctl output{font-family:var(--mono);font-size:.84rem;color:var(--q);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--q)}
+textarea{width:100%;min-height:72px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:10px 12px;font-family:var(--mono);font-size:.92rem}
+.readouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.ro{background:var(--sunk);border-radius:8px;padding:10px 12px;display:grid;gap:2px}
+.ro b{font-family:var(--display);font-size:1.4rem;font-variant-numeric:tabular-nums;line-height:1.15;overflow-wrap:anywhere}
+.ro span{font-size:.8rem;color:var(--muted)}
+.verdict{border-radius:8px;padding:10px 14px;font-size:.96rem;background:var(--sunk)}
+.verdict.good{background:var(--ok-soft)}
+.verdict.bad{background:var(--bad-soft)}
+.verdict.warn{background:var(--v-soft)}
+.chart{overflow-x:auto}
+.chart svg{display:block;width:100%;min-width:460px;height:auto}
+.chart.small svg{min-width:0}
+svg text{font-family:var(--mono);font-size:11px;fill:var(--muted)}
+.fine{font-size:.84rem;color:var(--muted)}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:700px){.two{grid-template-columns:minmax(0,1fr)}}
+
+/* tokens */
+.chips{display:flex;flex-wrap:wrap;gap:4px;font-family:var(--mono);font-size:.9rem}
+.chip{display:grid;gap:0;padding:3px 7px;border-radius:5px;line-height:1.3;text-align:center}
+.chip small{font-size:.66rem;opacity:.75}
+.chip.c0{background:var(--q-soft)}.chip.c1{background:var(--k-soft)}.chip.c2{background:var(--v-soft)}.chip.c3{background:var(--ok-soft)}
+
+/* attention sentence */
+.attn{display:flex;flex-wrap:wrap;gap:6px}
+.attn button{border:1px solid var(--line);border-radius:7px;padding:6px 10px 4px;background:var(--card);cursor:pointer;display:grid;gap:1px;min-width:52px;text-align:center}
+.attn button small{font-family:var(--mono);font-size:.68rem;color:var(--muted)}
+.attn button.sel{outline:2px solid var(--k);outline-offset:1px}
+.matrix{overflow-x:auto}
+.matrix table{border-collapse:separate;border-spacing:2px;font-family:var(--mono);font-size:.72rem}
+.matrix th{font-weight:400;color:var(--muted);padding:2px 6px;white-space:nowrap}
+.matrix th.col{writing-mode:vertical-rl;transform:rotate(180deg);height:80px;text-align:left}
+.matrix td{width:32px;height:28px;text-align:center;border-radius:4px;font-variant-numeric:tabular-nums}
+
+/* qkv table */
+.tbl{overflow-x:auto}
+.tbl table{border-collapse:collapse;width:100%;min-width:560px;font-size:.9rem}
+.tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;font-variant-numeric:tabular-nums}
+.tbl th{font-family:var(--mono);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:400}
+.tbl td.mono{font-size:.84rem}
+.wbar{height:10px;border-radius:3px;background:var(--q);min-width:2px}
+.formula{font-family:var(--mono);font-size:clamp(.9rem,2.4vw,1.1rem);background:var(--sunk);padding:12px 16px;border-radius:8px;overflow-x:auto;white-space:nowrap}
+
+/* block stepper */
+.stack{display:grid;gap:6px;max-width:520px}
+.stack div{border:1px solid var(--line);border-radius:8px;padding:9px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:.94rem;background:var(--card)}
+.stack div small{font-family:var(--mono);font-size:.7rem;color:var(--muted)}
+.stack div.on{border-color:var(--q);background:var(--q-soft)}
+.stack div.repeat{border-style:dashed}
+.stack-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:700px){.stack-wrap{grid-template-columns:minmax(0,1fr)}}
+
+/* gen */
+.gen{font-family:var(--mono);font-size:1rem;background:var(--sunk);border-radius:8px;padding:12px 14px;min-height:50px;line-height:1.9}
+.gen span{padding:2px 4px;border-radius:4px}
+.gen span.new{background:var(--q-soft)}
+.gen span.prompt{color:var(--muted)}
+
+/* flip cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.flip{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:14px 16px;text-align:left;cursor:pointer;display:grid;gap:6px;align-content:start;min-height:118px}
+.flip:hover{border-color:var(--q)}
+.flip .label{color:var(--q)}
+.flip b{font-family:var(--display);font-size:1.12rem}
+.flip span{font-size:.92rem}
+.flip[aria-pressed="true"]{background:var(--q-soft);border-color:var(--q)}
+.flip .hint{font-size:.78rem;color:var(--muted)}
+
+/* quiz */
+.quiz{display:grid;gap:14px;border-left:3px solid var(--q);padding-left:16px}
+.quiz .label{color:var(--q)}
+.qq{display:grid;gap:8px}
+.qq p{font-weight:700}
+.opts{display:grid;gap:6px}
+.opts button{text-align:left;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.95rem}
+.opts button:hover{border-color:var(--q)}
+.opts button.right{background:var(--ok-soft);border-color:var(--ok)}
+.opts button.wrong{background:var(--bad-soft);border-color:var(--bad)}
+.expl{font-size:.92rem;padding:8px 12px;border-radius:8px;background:var(--sunk)}
+
+/* finale */
+.final{padding-block:60px 0;border-top:1px solid var(--line);display:grid;gap:22px}
+.gloss{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px 24px;margin:0}
+.gloss div{display:grid;gap:2px;padding-block:8px;border-bottom:1px solid var(--line)}
+.gloss dt{font-weight:700}
+.gloss dd{margin:0;font-size:.92rem;color:var(--muted)}
+.next{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.next a{display:grid;gap:4px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:var(--ink);background:var(--card)}
+.next a:hover{border-color:var(--q)}
+.next a span{font-size:.88rem;color:var(--muted)}
+.models{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:700px){.models{grid-template-columns:minmax(0,1fr)}}
+.models div{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:4px;align-content:start;background:var(--card)}
+.models div.me{border-color:var(--q);background:var(--q-soft)}
+.models span{font-size:.9rem;color:var(--muted)}
+footer{padding-block:40px 0;font-size:.85rem;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <span class="label">A beginner's course · 9 modules</span>
+  <h1>Transformers <span>from scratch</span></h1>
+  <p class="lede">The transformer is the design inside ChatGPT, Claude, Gemini and Llama. This course follows one sentence as it travels through a transformer, one step per module. You will poke at every part of it with sliders and buttons, and you only need to know multiplication.</p>
+  <div class="sentence" aria-label="The sentence we follow">
+    <span>The</span><span>nurse</span><span>gave</span><span>the</span><span>patient</span><span>her</span><span>medicine</span><span>because</span><span class="hot">she</span><span>had</span><span>a</span><span>fever</span><i>→ who is "she"? By Module 5 you'll see how the model works it out.</i>
+  </div>
+  <div class="how">
+    <div><span class="label">1</span><b>Idea</b><span>The concept in plain words, with an everyday comparison.</span></div>
+    <div><span class="label">2</span><b>Try it</b><span>A small working model you can change and watch.</span></div>
+    <div><span class="label">3</span><b>Remember</b><span>Flip-cards for the key words.</span></div>
+    <div><span class="label">4</span><b>Check</b><span>Two questions. Get both right to finish the module.</span></div>
+  </div>
+  <div class="stats"><span><b>About 2 hours</b> in total</span><span><b>No coding</b> needed (there's an optional Python exercise at the end)</span><span class="mono" id="sync" style="font-size:.78rem">Progress saved in this browser</span></div>
+</header>
+</div>
+
+<nav class="track" aria-label="Modules">
+  <div class="track-in">
+    <ol id="track"></ol>
+    <div class="track-meta"><span>Text goes in at station 1. New text comes out at station 9.</span><div class="bar"><i id="bar"></i></div><span id="count" class="num">0 / 9</span></div>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<!-- ================= 1 ================= -->
+<section class="mod" id="m1">
+  <div class="mod-head"><span class="label">Module 1 · The goal</span><h2>A very good guesser</h2><p class="q">What is a large language model actually doing when it answers you?</p></div>
+  <div class="idea">
+    <div class="txt">
+      <p>A language model does one thing: <b>given some text, it predicts what comes next</b>. It does not look up answers in a database. It produces a list of every word it knows, each with a probability, then picks one.</p>
+      <p>To write a whole answer, it adds the chosen word to the text and predicts again, over and over. Everything a chatbot does, from translating to writing code, comes from repeating that one step.</p>
+      <p>The transformer is the machine that makes those predictions good. The rest of the course opens it up.</p>
+    </div>
+    <div class="analogy"><span class="label">Think of it like</span>Your phone's keyboard suggesting the next word, except it has read a large slice of the internet and can take a whole page of context into account, not just the last two words.</div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · next-word predictor</span><p>Pick a prompt. The bars show how likely each next word is. <b>Temperature</b> controls how adventurous the pick is: low means "almost always take the top word", high spreads the chances out.</p></div>
+    <div class="seg" id="l1-prompts"></div>
+    <div class="controls"><div class="ctl"><label for="l1-t">Temperature <output id="l1-tv">1.0</output></label><input type="range" id="l1-t" min="0.1" max="2" step="0.1" value="1"></div></div>
+    <div class="chart" id="l1-chart"></div>
+    <div class="row"><button class="btn primary" id="l1-sample">Pick a word</button><button class="btn" id="l1-reset">Clear picks</button></div>
+    <div class="gen" id="l1-out" aria-live="polite"></div>
+    <div class="readouts"><div class="ro"><b id="l1-top">–</b><span>chance of the top word</span></div><div class="ro"><b id="l1-other">–</b><span>chance of picking something else</span></div></div>
+  </div>
+  <div class="cards" data-m="1"></div>
+  <div class="quiz" id="quiz-1"></div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section class="mod" id="m2">
+  <div class="mod-head"><span class="label">Module 2 · Station 1</span><h2>Chopping text into tokens</h2><p class="q">A computer can't read letters. How does a sentence become something it can work with?</p></div>
+  <div class="idea">
+    <div class="txt">
+      <p>First the text is cut into <b>tokens</b>: whole words, pieces of words, or punctuation marks. Each token has a fixed ID number from a vocabulary list.</p>
+      <p>Common words like "the" get one token. A rare word like "unvaccinated" is built from pieces such as "un" + "vacc" + "inated". That way a vocabulary of about 50,000 to 200,000 pieces can spell <b>any</b> word, even ones the model has never seen.</p>
+      <p>From here on, the model only sees a list of ID numbers.</p>
+    </div>
+    <div class="analogy"><span class="label">Think of it like</span>Lego. You don't need a special brick for every shape. A modest box of standard bricks can build almost anything.</div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · a toy tokenizer</span><p>Type anything. Each coloured chip is one token, with its ID underneath. A dot (·) means the token starts with a space. Try made-up words, or long medical terms.</p></div>
+    <label class="fine" for="l2-in">Your text</label>
+    <textarea id="l2-in">Unvaccinated children face higher malaria transmission in Rwanda.</textarea>
+    <div class="chips" id="l2-out" aria-live="polite"></div>
+    <div class="readouts"><div class="ro"><b id="l2-w">–</b><span>words</span></div><div class="ro"><b id="l2-t">–</b><span>tokens</span></div><div class="ro"><b id="l2-r">–</b><span>tokens per word</span></div></div>
+    <p class="fine">This toy uses a small hand-made vocabulary and made-up IDs. Real tokenizers learn their pieces from huge amounts of text (a method called byte-pair encoding). As a rule of thumb, 100 English words come to about 130 tokens. Pricing and the "context window" of a model are counted in tokens.</p>
+  </div>
+  <div class="cards" data-m="2"></div>
+  <div class="quiz" id="quiz-2"></div>
+</section>
+
+<!-- ================= 3 ================= -->
+<section class="mod" id="m3">
+  <div class="mod-head"><span class="label">Module 3 · Station 2</span><h2>Words as points on a map</h2><p class="q">An ID number like 4,821 says nothing about meaning. How does the model know "nurse" and "doctor" are related?</p></div>
+  <div class="idea">
+    <div class="txt">
+      <p>Each token ID is swapped for a long list of numbers called an <b>embedding</b> (a vector). You can think of those numbers as coordinates that place the word on a map of meaning.</p>
+      <p>Nobody writes these numbers by hand. They are learned during training, and they settle so that <b>words used in similar ways end up close together</b>. Directions on the map come to mean something too, such as "male → female" or "country → its capital".</p>
+      <p>Real models use 768 to over 12,000 numbers per token. We'll squash it to 2 so you can see it.</p>
+    </div>
+    <div class="analogy"><span class="label">Think of it like</span>A map of a city: clinics cluster together, markets cluster together. If you know where something sits, you know a lot about what it is.</div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · a 2-D meaning map</span><p>Click any word to see its three nearest neighbours. Then try the word arithmetic: start at one word, move along a direction, and see where you land.</p></div>
+    <div class="seg" id="l3-arith"></div>
+    <div class="chart" id="l3-chart"></div>
+    <div class="verdict" id="l3-msg" aria-live="polite"></div>
+  </div>
+  <div class="cards" data-m="3"></div>
+  <div class="quiz" id="quiz-3"></div>
+</section>
+
+<!-- ================= 4 ================= -->
+<section class="mod" id="m4">
+  <div class="mod-head"><span class="label">Module 4 · Station 3</span><h2>Keeping track of word order</h2><p class="q">"Dog bites man" and "man bites dog" use the same words. How does the model tell them apart?</p></div>
+  <div class="idea">
+    <div class="txt">
+      <p>The attention step you'll meet next looks at all words at once, like a bag of words. On its own, it has <b>no idea which word came first</b>.</p>
+      <p>So before attention, each embedding gets a <b>positional encoding</b> added to it: another list of numbers that is different for position 1, position 2, position 3, and so on. The original transformer made these from sine waves of different speeds, so each position gets a unique pattern and neighbouring positions get similar patterns.</p>
+      <p>After this step, each vector carries two things: <b>what the word is</b> and <b>where it sits</b>.</p>
+    </div>
+    <div class="analogy"><span class="label">Think of it like</span>Numbered seats in a waiting room. Same patients, but the seat number tells you who arrived first.</div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · part 1 · the bag-of-words problem</span><p>Without position, both sentences contain the exact same set of tokens. Switch position on and see them become different.</p></div>
+    <div class="seg" id="l4-toggle"></div>
+    <div class="two"><div class="chips" id="l4-a"></div><div class="chips" id="l4-b"></div></div>
+    <div class="verdict" id="l4-msg"></div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · part 2 · each position's fingerprint</span><p>Each column is one position (0 to 49), each row one of 16 numbers. <span class="Q">Blue</span> is positive, <span class="K">pink</span> negative. Move the slider and look at the line underneath: positions close to the chosen one have similar fingerprints.</p></div>
+    <div class="controls"><div class="ctl"><label for="l4-p">Position <output id="l4-pv">10</output></label><input type="range" id="l4-p" min="0" max="49" step="1" value="10"></div></div>
+    <div class="chart" id="l4-heat"></div>
+    <div class="chart" id="l4-sim"></div>
+  </div>
+  <div class="cards" data-m="4"></div>
+  <div class="quiz" id="quiz-4"></div>
+</section>
+
+<!-- ================= 5 ================= -->
+<section class="mod" id="m5">
+  <div class="mod-head"><span class="label">Module 5 · Station 4 · the big idea</span><h2>Attention: who should I listen to?</h2><p class="q">In "the nurse gave the patient her medicine because she had a fever", who is "she"?</p></div>
+  <div class="idea">
+    <div class="txt">
+      <p>This is the idea that made transformers famous (the 2017 paper was titled <i>Attention Is All You Need</i>). For every word, the model asks: <b>which other words in this text matter for understanding me?</b></p>
+      <p>Each word gives every other word an <b>attention weight</b>, a share of its focus that adds up to 100%. Then it updates its own vector by blending in information from the words it focuses on. After attention, the vector for "she" carries information from "patient", so it now means something closer to "the sick patient".</p>
+      <p>Older models read word by word and forgot the start of long sentences. Attention lets any word look directly at any other word, however far away.</p>
+    </div>
+    <div class="analogy"><span class="label">Think of it like</span>A case meeting. When the team discusses one patient, everyone listens hardest to the people who know that patient: the attending nurse and the lab, not the whole hospital.</div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · attention in context</span><p>Click any word to see where it puts its attention. Darker means more. Then switch the ending of the sentence and click "she" again.</p></div>
+    <div class="seg" id="l5-variant"></div>
+    <div class="attn" id="l5-words"></div>
+    <div class="verdict" id="l5-msg" aria-live="polite"></div>
+    <div class="row"><button class="btn" id="l5-mx" aria-expanded="false">Show the full attention table</button></div>
+    <div class="matrix" id="l5-matrix" hidden></div>
+    <p class="fine">These weights are hand-set to show the idea, not taken from a real model. In this demo every word can look both left and right, as in models like BERT. Chat models like GPT only let a word look at earlier words (Module 9).</p>
+  </div>
+  <div class="cards" data-m="5"></div>
+  <div class="quiz" id="quiz-5"></div>
+</section>
+
+<!-- ================= 6 ================= -->
+<section class="mod" id="m6">
+  <div class="mod-head"><span class="label">Module 6 · Station 4, opened up</span><h2>Query, Key and Value</h2><p class="q">How does a word decide how much attention to give each other word? With three small lists of numbers.</p></div>
+  <div class="idea">
+    <div class="txt">
+      <p>Each token's vector is turned into three new vectors by multiplying it with three learned tables of numbers:</p>
+      <ul class="keys">
+        <li><span><span class="Q">Query</span>: what am I looking for? ("she" is looking for a female person who could be sick.)</span></li>
+        <li><span><span class="K">Key</span>: what do I offer? (a label each word holds up: "patient" says "I'm a person, I'm sick".)</span></li>
+        <li><span><span class="V">Value</span>: what I pass on if you pick me (the actual information).</span></li>
+      </ul>
+      <p>The score between two words is the <b>dot product</b> of one word's query with the other's key: multiply matching numbers and add them up. Matching directions give a big score. Scores are scaled down, turned into percentages with <b>softmax</b>, and used to blend the values.</p>
+    </div>
+    <div class="analogy"><span class="label">Think of it like</span>A records office. You arrive with a request (<span class="Q">query</span>). Every folder has a label on its spine (<span class="K">key</span>). You pull the folders whose labels best match your request and read what's inside them (<span class="V">value</span>).</div>
+  </div>
+  <div class="formula" aria-label="Attention formula">Attention = softmax( <span class="Q">Q</span> · <span class="K">K</span><sup>T</sup> ÷ √d ) × <span class="V">V</span></div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · be the query for "she"</span><p>The query for "she" has two numbers. Move them and watch the scores, the weights and the blended output change. The keys and values stay fixed. Use the presets first.</p></div>
+    <div class="seg" id="l6-presets"></div>
+    <div class="controls">
+      <div class="ctl"><label for="l6-q1"><span><span class="Q">Query</span> number 1 ("sick-ness")</span><output id="l6-q1v">1.8</output></label><input type="range" id="l6-q1" min="-2" max="2" step="0.1" value="1.8"></div>
+      <div class="ctl"><label for="l6-q2"><span><span class="Q">Query</span> number 2 ("care-giving")</span><output id="l6-q2v">0.2</output></label><input type="range" id="l6-q2" min="-2" max="2" step="0.1" value="0.2"></div>
+    </div>
+    <div class="tbl"><table><thead><tr><th>Word</th><th><span class="K">Key</span></th><th><span class="Q">Q</span>·<span class="K">K</span> score</th><th>÷ √2</th><th>Weight (softmax)</th><th><span class="V">Value</span></th></tr></thead><tbody id="l6-rows"></tbody></table></div>
+    <div class="two">
+      <div class="chart small" id="l6-kplot"></div>
+      <div class="chart small" id="l6-vplot"></div>
+    </div>
+    <div class="verdict" id="l6-msg" aria-live="polite"></div>
+  </div>
+  <div class="cards" data-m="6"></div>
+  <div class="quiz" id="quiz-6"></div>
+</section>
+
+<!-- ================= 7 ================= -->
+<section class="mod" id="m7">
+  <div class="mod-head"><span class="label">Module 7 · Station 5</span><h2>Many heads, many layers</h2><p class="q">One attention step is useful. What turns it into a model that can write an essay?</p></div>
+  <div class="idea">
+    <div class="txt">
+      <p><b>Multi-head attention.</b> A transformer runs several attention steps side by side, each with its own query, key and value tables. These are called <b>heads</b>. During training each head drifts toward tracking a different kind of link: one follows grammar, one links pronouns to names, one simply looks at the previous word.</p>
+      <p><b>The block.</b> Attention is wrapped with a few helpers into a <b>transformer block</b>. A <b>feed-forward network</b> lets each token "think" on its own about what it just gathered; much of the model's stored knowledge lives here. <b>Residual connections</b> add each step's input back to its output so nothing is lost, and <b>normalisation</b> keeps the numbers in a steady range.</p>
+      <p><b>The stack.</b> Blocks are stacked: GPT-2 small has 12, GPT-3 has 96. Early layers pick up simple patterns, later layers more abstract meaning.</p>
+    </div>
+    <div class="analogy"><span class="label">Think of it like</span>An outbreak investigation team. The epidemiologist, the lab scientist and the field officer read the same reports but each notices different things (heads). Each review round refines the picture before the next round (layers).</div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · part 1 · three heads, one sentence</span><p>Each row is a word, each column what it attends to. Switch heads and see the different patterns.</p></div>
+    <div class="seg" id="l7-heads"></div>
+    <p class="fine" id="l7-desc"></p>
+    <div class="matrix" id="l7-matrix"></div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · part 2 · walk through one block</span><p>Step through what happens to the vectors inside a single transformer block.</p></div>
+    <div class="stack-wrap">
+      <div class="stack" id="l7-stack"></div>
+      <div style="display:grid;gap:12px;align-content:start">
+        <div class="verdict" id="l7-step" aria-live="polite"></div>
+        <div class="row"><button class="btn" id="l7-back">Back</button><button class="btn primary" id="l7-next">Next step</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="cards" data-m="7"></div>
+  <div class="quiz" id="quiz-7"></div>
+</section>
+
+<!-- ================= 8 ================= -->
+<section class="mod" id="m8">
+  <div class="mod-head"><span class="label">Module 8 · How it learns</span><h2>Training: learning from surprise</h2><p class="q">All those tables of numbers start out random. How do they become useful?</p></div>
+  <div class="idea">
+    <div class="txt">
+      <p>Training is a guessing game played trillions of times. Take real text, hide the next token, let the model predict, then measure <b>how surprised it was</b> by the true answer. That surprise is the <b>loss</b>: if the model gave the right word a high probability, the loss is small.</p>
+      <p>Then every number in the model (its <b>parameters</b> or <b>weights</b>, 175 billion of them in GPT-3) is nudged a tiny bit in the direction that would have lowered the loss. This is <b>gradient descent</b>. The size of each nudge is the <b>learning rate</b>.</p>
+      <p>This first stage, called <b>pre-training</b>, gives a model that can continue any text. It is then <b>fine-tuned</b> on examples of good conversations and on human feedback to become a helpful assistant.</p>
+    </div>
+    <div class="analogy"><span class="label">Think of it like</span>Walking down a foggy hillside to the valley floor. You can't see the valley, but you can feel which way the ground slopes under your feet, so you keep stepping downhill.</div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · part 1 · measuring surprise</span><p>Prompt: "Wash your hands with soap and ___". The true next word is "water". How much probability did the model give it?</p></div>
+    <div class="controls"><div class="ctl"><label for="l8-p">Probability given to "water" <output id="l8-pv">0.60</output></label><input type="range" id="l8-p" min="0.01" max="0.99" step="0.01" value="0.6"></div></div>
+    <div class="chart" id="l8-loss"></div>
+    <div class="readouts"><div class="ro"><b id="l8-l">–</b><span>loss = −ln(probability)</span></div><div class="ro"><b id="l8-lm">–</b><span>what it means</span></div></div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · part 2 · gradient descent on one weight</span><p>A real model has billions of weights; here there is one. The curve shows the loss for every value of that weight. Pick a learning rate and take steps downhill. There are two valleys. Can you reach the deeper one on the left?</p></div>
+    <div class="controls">
+      <div class="ctl"><label for="l8-lr">Learning rate <output id="l8-lrv">0.10</output></label><input type="range" id="l8-lr" min="0.01" max="1.2" step="0.01" value="0.1"></div>
+      <div class="ctl"><label for="l8-w0">Starting weight <output id="l8-w0v">3.0</output></label><input type="range" id="l8-w0" min="-3" max="3.4" step="0.1" value="3"></div>
+    </div>
+    <div class="row"><button class="btn primary" id="l8-step">Take 1 step</button><button class="btn" id="l8-run">Take 20 steps</button><button class="btn" id="l8-reset">Start again</button></div>
+    <div class="chart" id="l8-gd"></div>
+    <div class="readouts"><div class="ro"><b id="l8-n">0</b><span>steps taken</span></div><div class="ro"><b id="l8-w">–</b><span>weight</span></div><div class="ro"><b id="l8-cur">–</b><span>loss now</span></div></div>
+    <div class="verdict" id="l8-msg" aria-live="polite"></div>
+  </div>
+  <div class="cards" data-m="8"></div>
+  <div class="quiz" id="quiz-8"></div>
+</section>
+
+<!-- ================= 9 ================= -->
+<section class="mod" id="m9">
+  <div class="mod-head"><span class="label">Module 9 · Station 6 · out comes text</span><h2>Generating text, one token at a time</h2><p class="q">How does the stack of blocks turn into a full answer?</p></div>
+  <div class="idea">
+    <div class="txt">
+      <p>After the last block, the vector of the final token is turned into a probability for every token in the vocabulary (Module 1). One is picked, added to the text, and the whole thing runs again. This loop is called <b>autoregressive generation</b>.</p>
+      <p>Chat models use a <b>causal mask</b>: each token may only attend to tokens before it, never after. That matches the job of predicting the future from the past.</p>
+      <p>The model can attend to everything inside its <b>context window</b> (from a few thousand to over a million tokens today). It is trained to produce <b>plausible</b> text, not to check facts, which is why it can state wrong things confidently. People call this <b>hallucination</b>; always verify important claims.</p>
+    </div>
+    <div class="analogy"><span class="label">Think of it like</span>Writing a sentence with your hand over everything to the right of your pen: you can reread what you've already written as often as you like, but you can't peek ahead.</div>
+  </div>
+  <div class="lab">
+    <div class="lab-head"><span class="label">Try it · generate a sentence</span><p>This toy model only remembers the last word, which is exactly what a transformer improves on: a real one would attend to the whole sentence. Press "Next token" and watch the loop. The grid on the right is the causal mask: row = the token doing the looking, filled square = allowed to look.</p></div>
+    <div class="controls"><div class="ctl"><label for="l9-t">Temperature <output id="l9-tv">0.8</output></label><input type="range" id="l9-t" min="0.1" max="2" step="0.1" value="0.8"></div></div>
+    <div class="row"><button class="btn primary" id="l9-next">Next token</button><button class="btn" id="l9-auto">Finish the sentence</button><button class="btn" id="l9-reset">Start again</button></div>
+    <div class="gen" id="l9-out" aria-live="polite"></div>
+    <div class="two">
+      <div class="chart small" id="l9-cands"></div>
+      <div class="chart small" id="l9-mask"></div>
+    </div>
+  </div>
+  <h3>Three families of transformer</h3>
+  <div class="models">
+    <div><span class="label">Encoder only</span><b>Reads in both directions</b><span>Example: BERT. Good at understanding and classifying text: search, sorting reports, spotting topics.</span></div>
+    <div class="me"><span class="label">Decoder only</span><b>Reads left to right, writes</b><span>Examples: GPT, Llama and most chat assistants. Uses the causal mask. This is the kind behind today's chatbots.</span></div>
+    <div><span class="label">Encoder–decoder</span><b>Reads, then writes</b><span>The original 2017 design, and T5. One half reads the input, the other writes the output. Built for translation.</span></div>
+  </div>
+  <div class="cards" data-m="9"></div>
+  <div class="quiz" id="quiz-9"></div>
+</section>
+
+<!-- ================= finale ================= -->
+<section class="final" id="end">
+  <div class="mod-head"><span class="label">The whole journey</span><h2>One sentence, start to finish</h2></div>
+  <ul class="keys">
+    <li><span><b>Tokens.</b> "The nurse gave the patient…" is cut into tokens, each with an ID.</span></li>
+    <li><span><b>Embeddings.</b> Each ID becomes a vector: a point on a map of meaning.</span></li>
+    <li><span><b>Position.</b> A position pattern is added so word order is kept.</span></li>
+    <li><span><b>Attention.</b> Each token builds a <span class="Q">query</span>, <span class="K">key</span> and <span class="V">value</span>; "she" matches the key of "patient" and blends in its value.</span></li>
+    <li><span><b>Blocks.</b> Many heads, a feed-forward step, residuals and normalisation, stacked dozens of times.</span></li>
+    <li><span><b>Output.</b> The last vector becomes probabilities over the vocabulary; one token is picked and the loop repeats.</span></li>
+    <li><span><b>Training.</b> All of the numbers were learned by predicting hidden next tokens and nudging weights to reduce surprise.</span></li>
+  </ul>
+  <h3>Glossary</h3>
+  <dl class="gloss" id="gloss"></dl>
+  <h3>Where to go next</h3>
+  <div class="next">
+    <a href="exercises/attention_from_scratch.py"><b>Code it yourself</b><span>A 60-line Python file in this repo that builds self-attention with NumPy and runs it on our sentence.</span></a>
+    <a href="https://jalammar.github.io/illustrated-transformer/" target="_blank" rel="noopener"><b>The Illustrated Transformer</b><span>Jay Alammar's well-known picture-by-picture walk-through.</span></a>
+    <a href="https://www.3blue1brown.com/topics/neural-networks" target="_blank" rel="noopener"><b>3Blue1Brown: neural networks</b><span>Animated videos on transformers and attention, very visual.</span></a>
+    <a href="https://www.youtube.com/watch?v=kCc8FmEb1nY" target="_blank" rel="noopener"><b>Let's build GPT</b><span>Andrej Karpathy writes a small GPT from an empty file. For when you're ready for code.</span></a>
+    <a href="https://arxiv.org/abs/1706.03762" target="_blank" rel="noopener"><b>Attention Is All You Need</b><span>The 2017 paper that introduced the transformer. Read it last.</span></a>
+  </div>
+  <footer>Built as a self-paced course. Progress is kept in your browser; when opened as a claude.ai artifact it follows your account.</footer>
+</section>
+</main>
+
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id);};
+var NS="http://www.w3.org/2000/svg";
+function S(tag,attrs,parent){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function T(x,y,txt,attrs,parent){var a=Object.assign({x:x,y:y},attrs||{});var e=S("text",a,parent);e.textContent=txt;return e;}
+function svg(w,h){return S("svg",{viewBox:"0 0 "+w+" "+h,role:"img"});}
+function softmax(xs,t){t=t||1;var m=Math.max.apply(null,xs.map(function(x){return x/t;}));var e=xs.map(function(x){return Math.exp(x/t-m);});var s=e.reduce(function(a,b){return a+b;},0);return e.map(function(x){return x/s;});}
+function pct(x){return (x*100<1&&x>0?(x*100).toFixed(1):Math.round(x*100))+"%";}
+function seg(el,items,cur,on){el.innerHTML="";items.forEach(function(it){var b=document.createElement("button");b.type="button";b.textContent=it.label;b.setAttribute("aria-pressed",String(it.id===cur));b.addEventListener("click",function(){Array.prototype.forEach.call(el.children,function(c){c.setAttribute("aria-pressed","false");});b.setAttribute("aria-pressed","true");on(it.id);});el.appendChild(b);});}
+function heat(w,col){return "background:color-mix(in srgb, var(--"+(col||"q")+") "+Math.round(w*100)+"%, var(--card))"+(w>0.55?";color:var(--card)":"");}
+function pickFrom(ps){var r=Math.random(),c=0;for(var i=0;i<ps.length;i++){c+=ps[i];if(r<c)return i;}return ps.length-1;}
+
+/* ---------- module list / track ---------- */
+var MODS=["The goal","Tokens","Embeddings","Position","Attention","Q · K · V","Heads & blocks","Training","Generation"];
+var track=$("track");
+MODS.forEach(function(name,i){var li=document.createElement("li");li.innerHTML='<a href="#m'+(i+1)+'" id="tk'+(i+1)+'"><span class="n"><span>'+String(i+1).padStart(2,"0")+'</span><i class="dot"></i></span><span class="t">'+name+'</span></a>';track.appendChild(li);});
+if("IntersectionObserver" in window){
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var n=e.target.id.slice(1);for(var i=1;i<=9;i++)$("tk"+i).classList.toggle("here",String(i)===n);var a=$("tk"+n);if(a&&a.scrollIntoView&&window.innerWidth<820){try{a.scrollIntoView({block:"nearest",inline:"center"});}catch(err){}}}});},{rootMargin:"-40% 0px -55% 0px"});
+  for(var i=1;i<=9;i++)io.observe($("m"+i));
+}
+
+/* ---------- Module 1: next word ---------- */
+var P1={
+  "The patient was diagnosed with":[["malaria",3.1],["cancer",2.7],["diabetes",2.4],["a",2.2],["COVID-19",2.0],["tuberculosis",1.6],["pneumonia",1.5],["cholera",0.7]],
+  "Wash your hands with soap and":[["water",5.0],["warm",2.2],["clean",1.5],["dry",1.2],["sanitizer",0.9],["then",0.6]],
+  "The capital of Rwanda is":[["Kigali",6.0],["a",1.5],["located",1.2],["the",1.0],["Huye",0.4],["Nairobi",-0.4]]
+};
+var p1=Object.keys(P1)[0], picks=[];
+seg($("l1-prompts"),Object.keys(P1).map(function(k){return {id:k,label:"“"+k+" …”"};}),p1,function(id){p1=id;picks=[];draw1();});
+function probs1(){return softmax(P1[p1].map(function(x){return x[1];}),+$("l1-t").value);}
+function draw1(){
+  var t=+$("l1-t").value;$("l1-tv").textContent=t.toFixed(1);
+  var rows=P1[p1],ps=probs1(),W=620,rh=30,H=rows.length*rh+10,lx=110,bw=W-lx-60;
+  var g=svg(W,H);
+  rows.forEach(function(r,i){var y=i*rh+6;
+    T(lx-10,y+16,r[0],{"text-anchor":"end",style:"fill:var(--ink);font-size:12px"},g);
+    S("rect",{x:lx,y:y+2,width:bw,height:rh-10,rx:4,style:"fill:var(--sunk)"},g);
+    S("rect",{x:lx,y:y+2,width:Math.max(2,bw*ps[i]),height:rh-10,rx:4,style:"fill:var(--q)"},g);
+    T(lx+bw+8,y+16,pct(ps[i]),{},g);});
+  var c=$("l1-chart");c.innerHTML="";c.appendChild(g);
+  $("l1-top").textContent=pct(ps[0]);$("l1-other").textContent=pct(1-ps[0]);
+  $("l1-out").innerHTML='<span class="prompt">'+p1+'</span> '+(picks.length?picks.map(function(w,i){return '<span class="'+(i===picks.length-1?"new":"")+'">'+w+'</span>';}).join(" <span class=\"prompt\">/</span> "):'<span class="prompt">… (press “Pick a word” a few times; each pick starts from the same prompt)</span>');
+}
+$("l1-t").addEventListener("input",draw1);
+$("l1-sample").addEventListener("click",function(){var i=pickFrom(probs1());picks.push(P1[p1][i][0]);if(picks.length>8)picks.shift();draw1();});
+$("l1-reset").addEventListener("click",function(){picks=[];draw1();});
+draw1();
+
+/* ---------- Module 2: tokenizer ---------- */
+var WORDS="the a an is was of and to in for with on at by it he she they we you i be are has have had this that from as not or but can will children face higher in health data model language large disease patient nurse doctor hands soap water fever medicine gave her his because rate cases people public hospital clinic test positive district".split(" ");
+var PIECES="vacc ination inated ine un re pre dis anti epi dem demic pan ic iology ology logy trans mission form former ers er ing ed tion ation s es ly ness ment able ize ise mal aria tuber culosis surv eill ance immun ity token izer ization atten Rw anda Kig ali chol era meas les out break hyper tens ion diab etes cardio vascular child ren high hos pit al tal".split(" ").sort(function(a,b){return b.length-a.length;});
+function hash(s){var h=2166136261;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0)%50000+100;}
+function tokenize(text){
+  var out=[],re=/(\s*)([A-Za-z]+|[0-9]|[^\sA-Za-z0-9])/g,m;
+  while((m=re.exec(text))){var sp=m[1].length>0,w=m[2];
+    if(/^[A-Za-z]+$/.test(w)&&WORDS.indexOf(w.toLowerCase())>=0){out.push({t:w,sp:sp});continue;}
+    if(!/^[A-Za-z]+$/.test(w)){out.push({t:w,sp:sp});continue;}
+    var i=0,first=true;
+    while(i<w.length){var found=null,rest=w.slice(i).toLowerCase();
+      for(var k=0;k<PIECES.length;k++){if(rest.indexOf(PIECES[k].toLowerCase())===0){found=w.substr(i,PIECES[k].length);break;}}
+      if(!found)found=w[i];
+      out.push({t:found,sp:first&&sp});first=false;i+=found.length;}
+  }
+  return out;
+}
+function draw2(){
+  var txt=$("l2-in").value,toks=tokenize(txt),box=$("l2-out");box.innerHTML="";
+  toks.forEach(function(tk,i){var d=document.createElement("span");d.className="chip c"+(i%4);d.innerHTML="";var a=document.createElement("span");a.textContent=(tk.sp?"·":"")+tk.t;var s=document.createElement("small");s.textContent=hash((tk.sp?" ":"")+tk.t.toLowerCase());d.appendChild(a);d.appendChild(s);box.appendChild(d);});
+  var words=(txt.match(/[A-Za-z0-9]+/g)||[]).length;
+  $("l2-w").textContent=words;$("l2-t").textContent=toks.length;$("l2-r").textContent=words?(toks.length/words).toFixed(2):"–";
+}
+$("l2-in").addEventListener("input",draw2);draw2();
+
+/* ---------- Module 3: embeddings ---------- */
+var EMB={malaria:[-6,5],cholera:[-7.4,3.6],tuberculosis:[-5,6.6],measles:[-7.8,6.2],
+  vaccine:[-2,7.4],antibiotic:[-1.2,5.6],medicine:[-0.2,7],drug:[0.4,5.8],
+  nurse:[4,6.2],doctor:[5.2,7.4],patient:[3,4.6],midwife:[5.8,5.2],
+  Rwanda:[4.2,-2.4],Kigali:[5.7,-3.8],Kenya:[6.8,-1.0],Nairobi:[8.3,-2.4],
+  king:[-6,-2.6],queen:[-6,-6],man:[-3.4,-2.2],woman:[-3.4,-5.6],
+  banana:[0,-7.2],rice:[1.6,-8],beans:[-1,-8.6],
+  run:[0.6,1.2],walk:[1.8,0.2],swim:[-0.6,0.2]};
+var ARITH={none:null,
+  kq:{a:"king",b:"man",c:"woman",ans:"queen",txt:"king − man + woman"},
+  cap:{a:"Kigali",b:"Rwanda",c:"Kenya",ans:"Nairobi",txt:"Kigali − Rwanda + Kenya"}};
+var sel3="nurse",ar3="none";
+seg($("l3-arith"),[{id:"none",label:"Nearest neighbours"},{id:"kq",label:"king − man + woman"},{id:"cap",label:"Kigali − Rwanda + Kenya"}],"none",function(id){ar3=id;draw3();});
+function d2(a,b){return Math.hypot(a[0]-b[0],a[1]-b[1]);}
+function draw3(){
+  var W=640,H=440,pad=30,sx=function(x){return pad+(x+9)/(18.5)*(W-2*pad);},sy=function(y){return H-pad-(y+9.5)/(18.5)*(H-2*pad);};
+  var g=svg(W,H);
+  S("defs",{},g).innerHTML='<marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--k)"/></marker>';
+  S("line",{x1:sx(-9),x2:sx(9.5),y1:sy(0),y2:sy(0),style:"stroke:var(--line)"},g);S("line",{x1:sx(0),x2:sx(0),y1:sy(-9.5),y2:sy(9),style:"stroke:var(--line)"},g);
+  var near=[],msg="";
+  if(ar3==="none"){
+    near=Object.keys(EMB).filter(function(w){return w!==sel3;}).sort(function(a,b){return d2(EMB[a],EMB[sel3])-d2(EMB[b],EMB[sel3]);}).slice(0,3);
+    near.forEach(function(w){S("line",{x1:sx(EMB[sel3][0]),y1:sy(EMB[sel3][1]),x2:sx(EMB[w][0]),y2:sy(EMB[w][1]),style:"stroke:var(--q);stroke-width:2;stroke-dasharray:4 3"},g);});
+    msg="<b>"+sel3+"</b> sits closest to <b>"+near.join("</b>, <b>")+"</b>. The model never got a dictionary; these neighbours came from how the words are used in text.";
+  } else {
+    var A=ARITH[ar3],a=EMB[A.a],b=EMB[A.b],c=EMB[A.c],r=[a[0]-b[0]+c[0],a[1]-b[1]+c[1]];
+    S("line",{x1:sx(b[0]),y1:sy(b[1]),x2:sx(a[0]),y2:sy(a[1]),"marker-end":"url(#ar3)",style:"stroke:var(--k);stroke-width:2"},g);
+    S("line",{x1:sx(c[0]),y1:sy(c[1]),x2:sx(r[0]),y2:sy(r[1]),"marker-end":"url(#ar3)",style:"stroke:var(--k);stroke-width:2"},g);
+    S("circle",{cx:sx(r[0]),cy:sy(r[1]),r:13,style:"fill:none;stroke:var(--ok);stroke-width:2.5"},g);
+    msg="The arrow from <b>"+A.b+"</b> to <b>"+A.a+"</b> is a direction of meaning. Copy that same arrow starting from <b>"+A.c+"</b> and you land on <b>"+A.ans+"</b>. Real embeddings show this same kind of pattern, only in thousands of dimensions.";
+  }
+  Object.keys(EMB).forEach(function(w){var p=EMB[w],isSel=ar3==="none"&&w===sel3,isNear=near.indexOf(w)>=0;
+    var grp=S("g",{tabindex:"0",role:"button","aria-label":w,style:"cursor:pointer"},g);
+    S("circle",{cx:sx(p[0]),cy:sy(p[1]),r:isSel?7:5,style:"fill:"+(isSel?"var(--k)":isNear?"var(--q)":"var(--muted)")},grp);
+    T(sx(p[0])+9,sy(p[1])+4,w,{style:"font-size:12px;fill:"+(isSel||isNear?"var(--ink)":"var(--muted)")+(isSel?";font-weight:700":"")},grp);
+    var go=function(){ar3="none";sel3=w;Array.prototype.forEach.call($("l3-arith").children,function(c,i){c.setAttribute("aria-pressed",String(i===0));});draw3();};
+    grp.addEventListener("click",go);grp.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}});});
+  var cbox=$("l3-chart");cbox.innerHTML="";cbox.appendChild(g);$("l3-msg").innerHTML=msg;
+}
+draw3();
+
+/* ---------- Module 4: position ---------- */
+var pos4=false;
+seg($("l4-toggle"),[{id:false,label:"Without position"},{id:true,label:"With position added"}],false,function(v){pos4=v;draw4a();});
+function draw4a(){
+  [["l4-a",["dog","bites","man"]],["l4-b",["man","bites","dog"]]].forEach(function(p){var box=$(p[0]);box.innerHTML="";
+    var ws=pos4?p[1]:p[1].slice().sort();
+    ws.forEach(function(w,i){var d=document.createElement("span");d.className="chip c"+["dog","bites","man"].indexOf(w);d.innerHTML='<span>'+w+'</span><small>'+(pos4?"position "+i:"position ?")+'</small>';box.appendChild(d);});});
+  var v=$("l4-msg");
+  if(pos4){v.className="verdict good";v.innerHTML="Now <b>dog@0</b> and <b>dog@2</b> are different vectors, so the two sentences look different to the model. Who bit whom is kept.";}
+  else{v.className="verdict bad";v.innerHTML="Both sentences give the model the same three vectors: {bites, dog, man}. To attention alone they are identical.";}
+}
+draw4a();
+var D4=16;
+function pe(pos,i){var k=Math.floor(i/2),f=Math.pow(10000,2*k/D4);return i%2===0?Math.sin(pos/f):Math.cos(pos/f);}
+function vec(pos){var v=[];for(var i=0;i<D4;i++)v.push(pe(pos,i));return v;}
+function cos(a,b){var d=0,na=0,nb=0;for(var i=0;i<a.length;i++){d+=a[i]*b[i];na+=a[i]*a[i];nb+=b[i]*b[i];}return d/Math.sqrt(na*nb);}
+function draw4b(){
+  var p=+$("l4-p").value;$("l4-pv").textContent=p;
+  var W=640,cw=11.4,ch=9,lx=40,g=svg(W,D4*ch+34);
+  for(var x=0;x<50;x++){for(var i=0;i<D4;i++){var v=pe(x,i);S("rect",{x:lx+x*cw,y:i*ch+4,width:cw-1,height:ch-1,style:"fill:var(--"+(v>=0?"q":"k")+");fill-opacity:"+Math.abs(v).toFixed(2)},g);}}
+  S("rect",{x:lx+p*cw-1.5,y:2,width:cw+2,height:D4*ch+3,style:"fill:none;stroke:var(--ink);stroke-width:2"},g);
+  T(lx-6,12,"dim 0",{"text-anchor":"end"},g);T(lx-6,D4*ch+2,"dim 15",{"text-anchor":"end"},g);
+  [0,10,20,30,40,49].forEach(function(x){T(lx+x*cw+cw/2,D4*ch+24,x,{"text-anchor":"middle"},g);});
+  var c=$("l4-heat");c.innerHTML="";c.appendChild(g);
+  var H=150,g2=svg(W,H),base=vec(p),sy=function(s){return 20+(1-s)/1.6*(H-50);},pts=[];
+  for(var y=-0.6;y<=1.001;y+=0.4){var yy=sy(y);S("line",{x1:lx,x2:lx+50*cw,y1:yy,y2:yy,style:"stroke:var(--line)"},g2);T(lx-6,yy+4,y.toFixed(1),{"text-anchor":"end"},g2);}
+  for(var x2=0;x2<50;x2++)pts.push((lx+x2*cw+cw/2)+","+sy(cos(base,vec(x2))));
+  S("polyline",{points:pts.join(" "),style:"fill:none;stroke:var(--q);stroke-width:2"},g2);
+  S("circle",{cx:lx+p*cw+cw/2,cy:sy(1),r:5,style:"fill:var(--k)"},g2);
+  T(lx,12,"similarity of every position to position "+p,{style:"fill:var(--ink)"},g2);
+  var c2=$("l4-sim");c2.innerHTML="";c2.appendChild(g2);
+}
+$("l4-p").addEventListener("input",draw4b);draw4b();
+
+/* ---------- Module 5: attention ---------- */
+var V5={
+  fever:{label:"…because she had a fever",toks:["The","nurse","gave","the","patient","her","medicine","because","she","had","a","fever"],
+    links:{8:{4:4,11:2,1:0.8},9:{8:2.5,11:2},10:{11:3},11:{9:2,8:2,4:1.5}}},
+  duty:{label:"…because she was on duty",toks:["The","nurse","gave","the","patient","her","medicine","because","she","was","on","duty"],
+    links:{8:{1:4,11:2,4:0.8},9:{8:2.5,11:1.5},10:{11:3},11:{10:2,1:2,8:2}}}
+};
+var COMMON5={0:{1:2.5},1:{0:2,2:1.5},2:{1:3,4:2,6:2},3:{4:2.5},4:{3:2,2:1.5},5:{4:2,1:1.5},6:{5:2,2:2},7:{2:1.5,9:1.5}};
+var var5="fever",sel5=8;
+function weights5(v,i){var L=Object.assign({},COMMON5[i]||{},V5[v].links[i]||{});var n=V5[v].toks.length,raw=[];for(var j=0;j<n;j++)raw.push(j===i?1.2:(L[j]!=null?L[j]:0));return softmax(raw,0.8);}
+seg($("l5-variant"),[{id:"fever",label:V5.fever.label},{id:"duty",label:V5.duty.label}],"fever",function(id){var5=id;draw5();});
+function draw5(){
+  var toks=V5[var5].toks,w=weights5(var5,sel5),box=$("l5-words");box.innerHTML="";
+  toks.forEach(function(t,j){var b=document.createElement("button");b.type="button";b.className=j===sel5?"sel":"";var x=j===sel5?0:w[j];b.setAttribute("style",j===sel5?"":heat(Math.min(1,x*2.2)));
+    b.innerHTML='<span>'+t+'</span><small>'+(j===sel5?"looking":pct(w[j]))+'</small>';b.setAttribute("aria-label",t+(j===sel5?" (selected)":", attention "+pct(w[j])));
+    b.addEventListener("click",function(){sel5=j;draw5();});box.appendChild(b);});
+  var order=toks.map(function(t,j){return j;}).filter(function(j){return j!==sel5;}).sort(function(a,b){return w[b]-w[a];});
+  var top=order[0],m=$("l5-msg");
+  m.className="verdict"+((sel5===8)?" good":"");
+  m.innerHTML="<b>“"+toks[sel5]+"”</b> pays most attention to <b>“"+toks[top]+"”</b> ("+pct(w[top])+"), then “"+toks[order[1]]+"” ("+pct(w[order[1]])+"). "+
+    (sel5===8?(var5==="fever"?"Here “she” has to be the <b>patient</b>: the one with a fever.":"Now “she” links to the <b>nurse</b>: the one on duty. Same word, different meaning, decided by context."):"All the percentages for one word add up to 100%.");
+  if(!$("l5-matrix").hidden)drawMatrix($("l5-matrix"),toks,toks.map(function(t,i){return weights5(var5,i);}),"k");
+}
+function drawMatrix(el,toks,W,col){
+  var h='<table><thead><tr><th></th>'+toks.map(function(t){return '<th class="col">'+t+'</th>';}).join("")+'</tr></thead><tbody>';
+  W.forEach(function(r,i){h+='<tr><th style="text-align:right">'+toks[i]+'</th>'+r.map(function(x){return '<td style="'+heat(Math.min(1,x*1.6),col)+'" title="'+pct(x)+'">'+Math.round(x*100)+'</td>';}).join("")+'</tr>';});
+  el.innerHTML=h+'</tbody></table><p class="fine">Each row adds to 100. Row = the word that is looking, column = the word being looked at.</p>';
+}
+$("l5-mx").addEventListener("click",function(){var m=$("l5-matrix");m.hidden=!m.hidden;this.setAttribute("aria-expanded",String(!m.hidden));this.textContent=m.hidden?"Show the full attention table":"Hide the table";draw5();});
+draw5();
+
+/* ---------- Module 6: QKV ---------- */
+var K6=[{w:"patient",k:[1.6,0.3],v:[2.2,0.6]},{w:"nurse",k:[0.3,1.6],v:[0.6,2.2]},{w:"fever",k:[1.1,-1.1],v:[1.6,-1.6]},{w:"she",k:[0.3,0.3],v:[0.2,0.5]}];
+seg($("l6-presets"),[{id:"sick",label:"Looking for the sick person"},{id:"care",label:"Looking for the caregiver"},{id:"none",label:"Not looking for anything"}],"sick",function(id){var q={sick:[1.8,0.2],care:[0.2,1.8],none:[0,0]}[id];$("l6-q1").value=q[0];$("l6-q2").value=q[1];draw6();});
+function arrow(g,x1,y1,x2,y2,col,w){S("line",{x1:x1,y1:y1,x2:x2,y2:y2,"marker-end":"url(#ah-"+col+")",style:"stroke:var(--"+col+");stroke-width:"+(w||2)},g);}
+function plot6(title,pts,special,col){
+  var W=300,H=300,c=150,s=40,g=svg(W,H);
+  S("defs",{},g).innerHTML=["q","k","v","ok"].map(function(cl){return '<marker id="ah-'+cl+'" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" style="fill:var(--'+cl+')"/></marker>';}).join("");
+  S("line",{x1:10,x2:W-10,y1:c,y2:c,style:"stroke:var(--line)"},g);S("line",{x1:c,x2:c,y1:24,y2:H-10,style:"stroke:var(--line)"},g);
+  T(10,14,title,{style:"fill:var(--ink)"},g);
+  pts.forEach(function(p){arrow(g,c,c,c+p.x*s,c-p.y*s,col,2);T(c+p.x*s+(p.x>=0?6:-6),c-p.y*s-6,p.lab,{"text-anchor":p.x>=0?"start":"end",style:"fill:var(--"+col+")"},g);});
+  if(special){arrow(g,c,c,c+special.x*s,c-special.y*s,special.col,3.5);S("circle",{cx:c+special.x*s,cy:c-special.y*s,r:4,style:"fill:var(--"+special.col+")"},g);T(c+special.x*s+8,c-special.y*s+14,special.lab,{style:"fill:var(--"+special.col+");font-weight:700"},g);}
+  return g;
+}
+function draw6(){
+  var q=[+$("l6-q1").value,+$("l6-q2").value];$("l6-q1v").textContent=q[0].toFixed(1);$("l6-q2v").textContent=q[1].toFixed(1);
+  var sc=K6.map(function(r){return q[0]*r.k[0]+q[1]*r.k[1];}),scaled=sc.map(function(x){return x/Math.SQRT2;}),w=softmax(scaled);
+  var out=[0,0];K6.forEach(function(r,i){out[0]+=w[i]*r.v[0];out[1]+=w[i]*r.v[1];});
+  $("l6-rows").innerHTML=K6.map(function(r,i){return '<tr><td><b>'+r.w+'</b></td><td class="mono K">['+r.k.join(", ")+']</td><td class="mono">'+q[0].toFixed(1)+'×'+r.k[0]+' + '+q[1].toFixed(1)+'×'+r.k[1]+' = <b>'+sc[i].toFixed(2)+'</b></td><td class="mono">'+scaled[i].toFixed(2)+'</td><td><div style="display:flex;gap:8px;align-items:center"><div class="wbar" style="width:'+Math.round(w[i]*110)+'px"></div><span class="mono">'+pct(w[i])+'</span></div></td><td class="mono V">['+r.v.join(", ")+']</td></tr>';}).join("")+
+    '<tr><td colspan="4" style="text-align:right">Output for “she” = Σ weight × value</td><td colspan="2" class="mono"><b class="Q">['+out[0].toFixed(2)+', '+out[1].toFixed(2)+']</b></td></tr>';
+  var k=$("l6-kplot");k.innerHTML="";k.appendChild(plot6("Key space: query vs keys",K6.map(function(r){return {x:r.k[0],y:r.k[1],lab:r.w};}),{x:q[0],y:q[1],lab:"query",col:"q"},"k"));
+  var v=$("l6-vplot");v.innerHTML="";v.appendChild(plot6("Value space: the blend",K6.map(function(r){return {x:r.v[0],y:r.v[1],lab:r.w};}),{x:out[0],y:out[1],lab:"output",col:"q"},"v"));
+  var top=w.indexOf(Math.max.apply(null,w)),m=$("l6-msg");
+  if(Math.max.apply(null,w)<0.4){m.className="verdict warn";m.innerHTML="The query doesn't strongly match any key, so the weights are spread out and the output is a bland average of all values.";}
+  else{m.className="verdict good";m.innerHTML="The query points the same way as <b class=\"K\">"+K6[top].w+"</b>’s key, so their dot product is the biggest and it gets <b>"+pct(w[top])+"</b> of the attention. The output vector moves toward <b class=\"V\">"+K6[top].w+"</b>’s value.";}
+}
+["l6-q1","l6-q2"].forEach(function(id){$(id).addEventListener("input",function(){Array.prototype.forEach.call($("l6-presets").children,function(c){c.setAttribute("aria-pressed","false");});draw6();});});
+draw6();
+
+/* ---------- Module 7: heads + block ---------- */
+var T7=["The","nurse","gave","the","patient","her","medicine"];
+function headMatrix(kind){return T7.map(function(t,i){var raw=T7.map(function(){return 0;});
+  if(kind==="prev"){raw[Math.max(0,i-1)]=4;}
+  else if(kind==="who"){var tgt={0:1,1:1,2:1,3:4,4:2,5:4,6:2}[i];raw[tgt]=3.5;raw[i]+=0.8;}
+  else{T7.forEach(function(x,j){raw[j]=j<=i+1?1:0.3;});raw[i]+=0.3;}
+  return softmax(raw);});}
+var HEADS={prev:"Head 1 · previous word. Each word looks at the word just before it. Simple, but it helps the model follow phrases like “the patient”.",
+  who:"Head 2 · who did what. Verbs and objects look at the people involved: “gave” looks at the nurse, “her” and “medicine” look at the patient.",
+  broad:"Head 3 · broad context. Attention is spread over many words, giving each word a general sense of what the whole sentence is about."};
+var head7="who";
+seg($("l7-heads"),[{id:"prev",label:"Head 1 · previous word"},{id:"who",label:"Head 2 · who did what"},{id:"broad",label:"Head 3 · broad context"}],head7,function(id){head7=id;draw7();});
+function draw7(){$("l7-desc").textContent=HEADS[head7];drawMatrix($("l7-matrix"),T7,headMatrix(head7),"q");}
+draw7();
+var STAGES=[
+  ["Input vectors","from Modules 3–4","Each token arrives as a vector: its embedding plus its position pattern. One vector per token."],
+  ["Multi-head attention","Modules 5–6","Every head computes queries, keys and values and blends in information from other tokens. The heads’ results are joined back into one vector per token."],
+  ["Add & normalise","residual","The attention result is <b>added</b> to the input vector instead of replacing it (a residual connection), so the original meaning is kept. Normalising keeps the numbers in a steady range so training stays stable."],
+  ["Feed-forward network","per token","Each token’s vector goes through a small two-layer neural network on its own. No mixing between tokens here. Researchers think much of the model’s factual knowledge is stored in these layers."],
+  ["Add & normalise","residual","Same trick again: add the input back, then normalise."],
+  ["Repeat × N blocks","12 in GPT-2 small, 96 in GPT-3","The output vectors become the input to the next identical block (with its own learned numbers). Each layer refines the meaning a little more."],
+  ["Turn into probabilities","Module 9","After the last block, the final token’s vector is compared against every vocabulary token to give next-token probabilities."]
+];
+var st7=0;
+function drawStack(){
+  $("l7-stack").innerHTML=STAGES.map(function(s,i){return '<div class="'+(i===st7?"on ":"")+(i===5?"repeat":"")+'"><span>'+s[0]+'</span><small>'+s[1]+'</small></div>';}).join("");
+  $("l7-step").innerHTML="<b>Step "+(st7+1)+" of "+STAGES.length+": "+STAGES[st7][0]+".</b> "+STAGES[st7][2];
+  $("l7-back").disabled=st7===0;$("l7-next").textContent=st7===STAGES.length-1?"Back to the start":"Next step";
+}
+$("l7-next").addEventListener("click",function(){st7=(st7+1)%STAGES.length;drawStack();});
+$("l7-back").addEventListener("click",function(){if(st7>0){st7--;drawStack();}});
+drawStack();
+
+/* ---------- Module 8: training ---------- */
+function draw8a(){
+  var p=+$("l8-p").value;$("l8-pv").textContent=p.toFixed(2);
+  var L=-Math.log(p),W=640,H=200,lx=46,rx=W-20,ty=16,by=H-30,sx=function(x){return lx+x*(rx-lx);},sy=function(y){return by-(y/4.6)*(by-ty);};
+  var g=svg(W,H);
+  [0,1,2,3,4].forEach(function(y){S("line",{x1:lx,x2:rx,y1:sy(y),y2:sy(y),style:"stroke:var(--line)"},g);T(lx-8,sy(y)+4,y,{"text-anchor":"end"},g);});
+  [0,0.25,0.5,0.75,1].forEach(function(x){T(sx(x),by+18,x,{"text-anchor":"middle"},g);});
+  var pts=[];for(var x=0.01;x<=1.0001;x+=0.01)pts.push(sx(x)+","+sy(-Math.log(x)));
+  S("polyline",{points:pts.join(" "),style:"fill:none;stroke:var(--k);stroke-width:2"},g);
+  S("circle",{cx:sx(p),cy:sy(L),r:6,style:"fill:var(--q)"},g);
+  T(lx,ty-4,"loss",{},g);T(rx,by-6,"probability given to the right word →",{"text-anchor":"end"},g);
+  var c=$("l8-loss");c.innerHTML="";c.appendChild(g);
+  $("l8-l").textContent=L.toFixed(2);
+  $("l8-lm").textContent=p>0.8?"Barely surprised: small nudge":p>0.4?"Somewhat surprised":p>0.1?"Quite surprised: bigger nudge":"Very surprised: big nudge";
+}
+$("l8-p").addEventListener("input",draw8a);draw8a();
+function Lf(w){return 0.05*Math.pow(w*w-4,2)+0.3*w+1.5;}
+function dLf(w){return 0.2*w*(w*w-4)+0.3;}
+var gd={w:3,n:0,path:[],out:false};
+function resetGD(){gd={w:+$("l8-w0").value,n:0,path:[+$("l8-w0").value],out:false};draw8b();}
+function stepGD(k){for(var i=0;i<k&&!gd.out;i++){gd.w=gd.w-(+$("l8-lr").value)*dLf(gd.w);gd.n++;if(Math.abs(gd.w)>3.6||!isFinite(gd.w)){gd.out=true;gd.w=Math.max(-3.6,Math.min(3.6,gd.w||3.6));}gd.path.push(gd.w);}draw8b();}
+function draw8b(){
+  $("l8-lrv").textContent=(+$("l8-lr").value).toFixed(2);$("l8-w0v").textContent=(+$("l8-w0").value).toFixed(1);
+  var W=640,H=260,lx=40,rx=W-16,ty=14,by=H-30,sx=function(w){return lx+(w+3.6)/7.2*(rx-lx);},sy=function(l){return by-Math.min(l,8)/8*(by-ty);};
+  var g=svg(W,H);
+  [0,2,4,6,8].forEach(function(y){S("line",{x1:lx,x2:rx,y1:sy(y),y2:sy(y),style:"stroke:var(--line)"},g);T(lx-8,sy(y)+4,y,{"text-anchor":"end"},g);});
+  [-3,-2,-1,0,1,2,3].forEach(function(x){T(sx(x),by+18,x,{"text-anchor":"middle"},g);});
+  var pts=[];for(var w=-3.6;w<=3.6;w+=0.04)pts.push(sx(w)+","+sy(Lf(w)));
+  S("polyline",{points:pts.join(" "),style:"fill:none;stroke:var(--k);stroke-width:2"},g);
+  if(gd.path.length>1)S("polyline",{points:gd.path.map(function(w){return sx(w)+","+sy(Lf(w));}).join(" "),style:"fill:none;stroke:var(--q);stroke-width:1.5;stroke-dasharray:3 3"},g);
+  gd.path.forEach(function(w,i){if(i<gd.path.length-1)S("circle",{cx:sx(w),cy:sy(Lf(w)),r:3,style:"fill:var(--q);fill-opacity:.4"},g);});
+  S("circle",{cx:sx(gd.w),cy:sy(Lf(gd.w)),r:8,style:"fill:var(--q);stroke:var(--card);stroke-width:2"},g);
+  T(lx,ty-2,"loss",{},g);T(rx,by-6,"weight →",{"text-anchor":"end"},g);
+  var c=$("l8-gd");c.innerHTML="";c.appendChild(g);
+  $("l8-n").textContent=gd.n;$("l8-w").textContent=gd.w.toFixed(2);$("l8-cur").textContent=Lf(gd.w).toFixed(2);
+  var m=$("l8-msg"),settled=Math.abs(dLf(gd.w))<0.05;
+  if(gd.out){m.className="verdict bad";m.innerHTML="<b>Overshot.</b> The learning rate is so big that each step jumps right past the valley and the weight flies off. Lower the learning rate and start again.";}
+  else if(gd.n===0){m.className="verdict";m.innerHTML="Press “Take 1 step”. Each step moves the weight downhill by (learning rate × slope).";}
+  else if(settled&&gd.w<0){m.className="verdict good";m.innerHTML="<b>Deepest valley reached</b> after "+gd.n+" steps. This is the best weight on this curve.";}
+  else if(settled){m.className="verdict warn";m.innerHTML="<b>Stuck in the shallower valley.</b> Downhill in every direction looks uphill from here. Try a different starting weight, or a larger learning rate that can hop over the hump.";}
+  else{m.className="verdict";m.innerHTML="Still moving. The slope is "+dLf(gd.w).toFixed(2)+", so the next step will be about "+(Math.abs(dLf(gd.w))*(+$("l8-lr").value)).toFixed(2)+" long.";}
+}
+$("l8-step").addEventListener("click",function(){stepGD(1);});
+$("l8-run").addEventListener("click",function(){stepGD(20);});
+$("l8-reset").addEventListener("click",resetGD);
+$("l8-lr").addEventListener("input",draw8b);
+$("l8-w0").addEventListener("input",resetGD);
+resetGD();
+
+/* ---------- Module 9: generation ---------- */
+var BG={is:[["spread",2.5],["a",2.0],["preventable",1.6],["caused",1.4]],spread:[["by",3.0],["through",1.6]],through:[["mosquito",2.2],["infected",1.6]],
+  by:[["mosquitoes",2.4],["infected",2.0],["a",1.2]],caused:[["by",3.2]],a:[["parasite",2.4],["disease",2.2],["mosquito",1.0]],
+  preventable:[["disease",2.6],["with",1.6]],"with":[["bed",2.4],["treatment",1.8]],bed:[["nets",3.5]],nets:[[".",2.2],["and",2.0]],
+  infected:[["mosquitoes",2.6],["mosquito",2.0]],mosquito:[["bites",3.0]],mosquitoes:[[".",2.2],["and",1.8]],bites:[[".",2.4],["and",1.5]],
+  parasite:[["spread",1.8],[".",1.6]],disease:[[".",2.0],["spread",1.6],["caused",1.2]],treatment:[[".",2.4],["and",1.4]],
+  and:[["treatment",1.6],["bed",1.4],["is",1.0]]};
+var PROMPT9=["Malaria","is"],seq9=[];
+function cands9(){var last=seq9.length?seq9[seq9.length-1]:"is";return BG[last]||[];}
+function draw9(){
+  $("l9-tv").textContent=(+$("l9-t").value).toFixed(1);
+  var done=seq9[seq9.length-1]==="."||seq9.length>=14;
+  $("l9-out").innerHTML=PROMPT9.map(function(w){return '<span class="prompt">'+w+'</span>';}).join(" ")+" "+seq9.map(function(w,i){return '<span class="'+(i===seq9.length-1?"new":"")+'">'+w+'</span>';}).join(" ")+(done?' <span class="prompt">[end]</span>':"");
+  $("l9-next").disabled=done;$("l9-auto").disabled=done;
+  var cs=done?[]:cands9(),ps=softmax(cs.map(function(c){return c[1];}),+$("l9-t").value),W=300,rh=28,H=Math.max(110,cs.length*rh+34),g=svg(W,H),lx=96,bw=W-lx-48;
+  T(0,14,done?"Finished: the model picked “.”":"Candidates after “"+(seq9[seq9.length-1]||"is")+"”",{style:"fill:var(--ink)"},g);
+  cs.forEach(function(c,i){var y=26+i*rh;T(lx-8,y+15,c[0],{"text-anchor":"end",style:"fill:var(--ink)"},g);S("rect",{x:lx,y:y+3,width:bw,height:rh-10,rx:3,style:"fill:var(--sunk)"},g);S("rect",{x:lx,y:y+3,width:Math.max(2,bw*ps[i]),height:rh-10,rx:3,style:"fill:var(--q)"},g);T(lx+bw+6,y+15,pct(ps[i]),{},g);});
+  var c=$("l9-cands");c.innerHTML="";c.appendChild(g);
+  var all=PROMPT9.concat(seq9),n=all.length,cell=Math.min(18,220/n),off=78,g2=svg(300,off+n*cell+10);
+  T(0,14,"Causal mask ("+n+" tokens)",{style:"fill:var(--ink)"},g2);
+  all.forEach(function(w,i){T(off-6,28+i*cell+cell*0.7,w.length>9?w.slice(0,8)+"…":w,{"text-anchor":"end",style:"font-size:"+(cell<14?9:11)+"px"},g2);
+    all.forEach(function(_,j){S("rect",{x:off+j*cell,y:24+i*cell,width:cell-2,height:cell-2,rx:2,style:j<=i?"fill:var(--q);fill-opacity:"+(i===n-1?1:.45):"fill:var(--sunk)"},g2);});});
+  var m=$("l9-mask");m.innerHTML="";m.appendChild(g2);
+}
+function next9(){var cs=cands9();if(!cs.length)return;var i=pickFrom(softmax(cs.map(function(c){return c[1];}),+$("l9-t").value));seq9.push(cs[i][0]);draw9();}
+$("l9-next").addEventListener("click",next9);
+$("l9-auto").addEventListener("click",function(){var g=0;while(seq9[seq9.length-1]!=="."&&seq9.length<14&&g++<20)next9();});
+$("l9-reset").addEventListener("click",function(){seq9=[];draw9();});
+$("l9-t").addEventListener("input",draw9);
+draw9();
+
+/* ---------- flip-cards ---------- */
+var CARDS={
+1:[["Language model","A program that gives a probability to every possible next token, given the text so far."],["Token","A chunk of text the model reads and writes: a word, part of a word, or a symbol."],["Temperature","A setting for how random the pick is. Low = safe and repetitive, high = varied and riskier."]],
+2:[["Tokenizer","The tool that cuts text into tokens and swaps each for its ID number."],["Vocabulary","The fixed list of all tokens a model knows, often 50,000 to 200,000 of them."],["Context window","The most tokens a model can look at at once, prompt and answer together."]],
+3:[["Embedding","A list of numbers (a vector) that stands for a token. Similar meanings get similar numbers."],["Vector","An ordered list of numbers. You can picture it as an arrow or a point in space."],["Dimension","How many numbers are in each vector. Real models use hundreds to thousands."]],
+4:[["Positional encoding","A pattern of numbers added to each embedding to say where the token sits in the text."],["Word order problem","Attention alone treats text as a bag of words; position info fixes that."],["Sine waves","The original transformer built position patterns from waves of different speeds."]],
+5:[["Attention","Each token deciding how much to listen to every other token, then blending in what it hears."],["Attention weight","The share of focus one token gives another. A token's weights add up to 100%."],["Self-attention","Attention where the tokens of one text all look at each other."]],
+6:[["Query","What a token is looking for. Compared with every key."],["Key","What a token offers, like a label. Matched against queries."],["Value","The information a token passes on when it gets attention."]],
+7:[["Attention head","One independent set of query, key and value tables. Models run many in parallel."],["Feed-forward layer","A small network that processes each token on its own after attention."],["Residual connection","Adding a step's input back to its output, so information is never thrown away."]],
+8:[["Loss","A score of how wrong (how surprised) the model was. Training tries to make it small."],["Gradient descent","Nudging every weight slightly in the direction that lowers the loss, again and again."],["Parameters","The learned numbers inside the model. GPT-3 has 175 billion."]],
+9:[["Autoregressive","Generating one token at a time, each time feeding the output back in as input."],["Causal mask","A rule that a token may only attend to earlier tokens, never later ones."],["Hallucination","Fluent, confident output that is not true. It happens because the model aims for plausible text."]]
+};
+document.querySelectorAll(".cards").forEach(function(box){var m=box.getAttribute("data-m");CARDS[m].forEach(function(c){var b=document.createElement("button");b.type="button";b.className="flip";b.setAttribute("aria-pressed","false");
+  var paint=function(){var on=b.getAttribute("aria-pressed")==="true";b.innerHTML=on?'<span class="label">Means</span><span>'+c[1]+'</span>':'<span class="label">Term</span><b>'+c[0]+'</b><span class="hint">Tap to see what it means</span>';};
+  paint();b.addEventListener("click",function(){b.setAttribute("aria-pressed",String(b.getAttribute("aria-pressed")!=="true"));paint();});box.appendChild(b);});});
+var gl=$("gloss");Object.keys(CARDS).forEach(function(m){CARDS[m].forEach(function(c){var d=document.createElement("div");d.innerHTML="<dt>"+c[0]+"</dt><dd>"+c[1]+"</dd>";gl.appendChild(d);});});
+
+/* ---------- quizzes ---------- */
+var QUIZ={
+1:[{q:"What does a large language model fundamentally do?",o:["Looks answers up in a big database","Predicts the next token from the text before it","Understands meaning exactly like a person","Copies whole sentences it memorised"],a:1,e:"Everything it does is built by repeating one step: predict the next token, add it, predict again."},
+   {q:"You raise the temperature from 0.2 to 1.5. What happens?",o:["The model becomes more accurate","Less likely words get picked more often","The model reads more text","Nothing changes"],a:1,e:"Higher temperature flattens the probabilities, so surprising words get a bigger chance. Try it in the lab."}],
+2:[{q:"Why is “unvaccinated” split into pieces like “un” + “vacc” + “inated”?",o:["To save electricity","So a fixed vocabulary can build any word, even rare or new ones","Because the model can't read long words","It's a mistake in the tokenizer"],a:1,e:"Combining subword pieces lets a vocabulary of tens of thousands of tokens cover every word."},
+   {q:"About how many tokens is 100 English words?",o:["About 25","About 130","Exactly 100","About 1,000"],a:1,e:"Roughly 1 token ≈ ¾ of a word in English, so 100 words ≈ 130 tokens. Other languages often need more."}],
+3:[{q:"What is an embedding?",o:["A list of numbers for a token, learned so similar words sit close together","The token's ID number","A dictionary definition","A picture of the word"],a:0,e:"Embeddings are learned vectors. Closeness on the map reflects similarity in how words are used."},
+   {q:"Why does king − man + woman land near queen?",o:["Someone programmed that rule","Directions in embedding space capture relationships such as male → female","The words are alphabetical","It's a coincidence"],a:1,e:"Training arranges the space so consistent relationships become consistent directions."}],
+4:[{q:"Without position information, how do “dog bites man” and “man bites dog” look to attention?",o:["Completely different","Exactly the same","Like noise","Like translations"],a:1,e:"Attention on its own sees a set of vectors with no order. Position patterns make word order visible."},
+   {q:"What is done with the positional encoding?",o:["It replaces the embedding","It is added to the embedding","It is stored in a separate model","It is thrown away after training"],a:1,e:"Embedding + position → one vector that carries both what the word is and where it sits."}],
+5:[{q:"In “…the patient her medicine because she had a fever”, what does attention help the model do?",o:["Count the words","Link “she” to “patient”","Translate the sentence","Remove the word “she”"],a:1,e:"“She” gives most of its attention to “patient” and blends in that information."},
+   {q:"For one word, its attention weights over all the words…",o:["add up to 100%","are all equal","are always 0 or 1","add up to the sentence length"],a:0,e:"Softmax turns scores into shares of focus that add up to 1 (100%)."}],
+6:[{q:"How is the attention score between two words calculated?",o:["By how many letters they share","Dot product of one word's query with the other word's key","By their distance in the sentence","Value times value"],a:1,e:"Multiply the matching numbers of query and key and add them up. Similar direction → big score."},
+   {q:"Why divide the scores by √d before softmax?",o:["To make the model faster","To stop scores getting so big that softmax becomes all-or-nothing","To convert them to percentages","There is no reason"],a:1,e:"With many dimensions dot products grow large; scaling keeps softmax smooth so training works well."}],
+7:[{q:"Why use several attention heads instead of one?",o:["Each can track a different kind of relationship at the same time","To use more memory","Because one head can only read one word","So the model can run on phones"],a:0,e:"Different heads specialise: grammar, who-did-what, nearby words, and so on."},
+   {q:"What does a residual connection do?",o:["Deletes old information","Adds a step's input back to its output so nothing is lost","Counts tokens","Chooses the next word"],a:1,e:"Input + change = output. It preserves information and makes very deep stacks trainable."}],
+8:[{q:"The model gives the right next word probability 0.9 in one case and 0.1 in another. Which has the bigger loss?",o:["0.9","0.1","They're equal","Loss doesn't depend on probability"],a:1,e:"Loss = −ln(p). −ln(0.9) ≈ 0.11 and −ln(0.1) ≈ 2.30. Being confidently wrong is punished most."},
+   {q:"What happens if the learning rate is far too large?",o:["Training is perfect but slow","Steps overshoot the valley and the loss can bounce or explode","The model gets more parameters","Nothing"],a:1,e:"Each step jumps past the minimum. Try a learning rate above 1 in the lab."}],
+9:[{q:"How does a GPT-style model write a paragraph?",o:["It writes the whole paragraph at once","It predicts one token, appends it, and repeats","It copies a paragraph from its training data","It writes the last word first"],a:1,e:"This loop is called autoregressive generation."},
+   {q:"Why can a language model state false things confidently?",o:["It is lying on purpose","It is trained to produce plausible text, not to check facts","Its internet connection failed","The temperature is always zero"],a:1,e:"Fluency is not the same as truth. Check important facts against trusted sources."}]
+};
+
+/* ---------- state & persistence ---------- */
+var KEY="tfs-course-v1",state={ans:{}};
+try{var raw=JSON.parse(localStorage.getItem(KEY)||"null");if(raw&&typeof raw==="object"&&raw.ans)state={ans:raw.ans};}catch(e){}
+var cloudDoc=null,writing=Promise.resolve();
+function setSync(t){$("sync").textContent=t;}
+function save(){
+  try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}
+  if(cloudDoc){var body={ans:Object.assign({},state.ans)};
+    writing=writing.then(function(){return cloudDoc.set(body);}).then(function(){setSync("Progress synced to your account");}).catch(function(){setSync("Couldn't sync. Saved in this browser only.");});}
+}
+function isDone(m){return QUIZ[m].every(function(q,i){return state.ans[m+"-"+i]===q.a;});}
+function renderQuiz(m){
+  var box=$("quiz-"+m);box.innerHTML='<span class="label">Check · Module '+m+(isDone(m)?" · complete ✓":"")+'</span>';
+  QUIZ[m].forEach(function(q,i){var key=m+"-"+i,ans=state.ans[key],wrap=document.createElement("div");wrap.className="qq";
+    var p=document.createElement("p");p.textContent=q.q;wrap.appendChild(p);
+    var opts=document.createElement("div");opts.className="opts";
+    q.o.forEach(function(o,j){var b=document.createElement("button");b.type="button";b.textContent=o;
+      if(ans===j)b.className=j===q.a?"right":"wrong";
+      if(ans===q.a&&j!==q.a)b.disabled=true;
+      b.addEventListener("click",function(){state.ans[key]=j;save();renderQuiz(m);renderProgress();});opts.appendChild(b);});
+    wrap.appendChild(opts);
+    if(ans!=null){var e=document.createElement("div");e.className="expl";e.innerHTML=(ans===q.a?"<b>Right.</b> ":"<b>Not quite. Try another answer.</b> ")+(ans===q.a?q.e:"");wrap.appendChild(e);}
+    box.appendChild(wrap);});
+}
+function renderProgress(){var n=0;for(var m=1;m<=9;m++){var d=isDone(m);if(d)n++;$("tk"+m).classList.toggle("done",d);}
+  $("count").textContent=n+" / 9";$("bar").style.width=(n/9*100)+"%";}
+for(var m=1;m<=9;m++)renderQuiz(m);
+renderProgress();
+
+/* Progress follows the viewer's claude.ai account when the page runs as an artifact; elsewhere (GitHub Pages) it stays in this browser. */
+if(window.claude&&typeof window.claude.use==="function"){
+  Promise.all([window.claude.use("db"),window.claude.use("user")]).then(function(r){
+    var db=r[0],user=r[1];if(!db||!user)return null;
+    return user.id().then(function(uid){
+      if(!uid)return;
+      cloudDoc=db.doc("data/users/"+uid+"/progress");
+      var first=true;
+      cloudDoc.onSnapshot(function(snap){
+        if(snap.exists){var d=snap.data()||{};state={ans:d.ans||{}};try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}
+          for(var m=1;m<=9;m++)renderQuiz(m);renderProgress();setSync("Progress synced to your account");}
+        else if(first){if(Object.keys(state.ans).length)save();else setSync("Progress synced to your account");}
+        first=false;
+      },function(){setSync("Saved in this browser only");});
+    });
+  }).catch(function(){});
+}
+})();
+</script>
+</body>
+</html>
